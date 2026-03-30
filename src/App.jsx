@@ -10,21 +10,41 @@ function App() {
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
+    console.log('🔍 App: проверка сессии...')
+    
+    // Проверяем текущую сессию
     supabase.auth.getSession().then(({ data: { session } }) => {
+      console.log('📌 Текущая сессия:', session ? `Пользователь ${session.user.email}` : 'Нет сессии')
       setSession(session)
       setLoading(false)
     })
 
-    const { data: listener } = supabase.auth.onAuthStateChange((_event, session) => {
+    // Слушаем изменения авторизации
+    const { data: listener } = supabase.auth.onAuthStateChange((event, session) => {
+      console.log('🔄 Событие авторизации:', event)
+      console.log('👤 Пользователь:', session?.user?.email || 'не авторизован')
       setSession(session)
     })
 
-    return () => listener?.subscription.unsubscribe()
+    return () => {
+      console.log('🧹 Очистка слушателя')
+      listener?.subscription.unsubscribe()
+    }
   }, [])
 
   if (loading) {
-    return <div className="min-h-screen flex items-center justify-center">Загрузка...</div>
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-blue-50 to-indigo-100">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-indigo-600 mx-auto mb-4"></div>
+          <p className="text-gray-600">Загрузка...</p>
+        </div>
+      </div>
+    )
   }
+
+  console.log('🎯 Текущий session:', session ? 'есть' : 'нет')
+  console.log('📍 Редирект:', session ? 'на dashboard' : 'на auth')
 
   return (
     <BrowserRouter>

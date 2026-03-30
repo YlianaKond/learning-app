@@ -40,6 +40,44 @@ export default function Dashboard() {
     if (data) setDocuments(data)
   }
 
+  // ============================================================
+  // ФУНКЦИЯ ВЫЗОВА WORKER (ВСТАВЬ СЮДА СВОЙ URL!)
+  // ============================================================
+  const processDocument = async (documentId, fileUrl, userId) => {
+    console.log('🔔 Функция processDocument вызвана!')
+    // ЗАМЕНИ НА URL ТВОЕГО WORKER'а!
+    const workerUrl = '/api/process-document'
+    
+    try {
+      console.log('Вызов Worker для обработки файла:', documentId)
+      console.log('📍 URL Worker:', workerUrl)
+      const response = await fetch(workerUrl, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          fileUrl,
+          documentId,
+          userId
+        })
+      })
+      console.log('📊 Статус ответа:', response.status)
+      const result = await response.json()
+      console.log('📦 Ответ Worker:', result)
+      if (result.success) {
+        console.log(`✅ Успешно! Сгенерировано ${result.questionsCount} вопросов`)
+        // Обновляем список документов, чтобы увидеть статус
+        const user = await supabase.auth.getUser()
+        await loadDocuments(user.data.user.id)
+      } else {
+        console.error('❌ Ошибка обработки:', result.error)
+      }
+    } catch (error) {
+      console.error('❌ Ошибка вызова Worker:', error)
+    }
+  }
+
   const handleFileUpload = async (e) => {
     e.preventDefault()
     if (!selectedFile) return
@@ -66,7 +104,7 @@ export default function Dashboard() {
         .getPublicUrl(filePath)
 
       // 3. Сохраняем запись в таблицу documents
-      const { error: dbError } = await supabase
+      const { data: docData, error: dbError } = await supabase
         .from('documents')
         .insert({
           user_id: userId,
@@ -74,14 +112,20 @@ export default function Dashboard() {
           file_url: urlData.publicUrl,
           status: 'pending'
         })
+        .select()
 
       if (dbError) throw dbError
 
       // 4. Обновляем список документов
       await loadDocuments(userId)
-      setSelectedFile(null)
       
-      alert('Файл загружен! ИИ начнет обработку в фоне.')
+      // 5. ВЫЗЫВАЕМ WORKER ДЛЯ ОБРАБОТКИ ФАЙЛА
+      if (docData && docData[0]) {
+        await processDocument(docData[0].id, urlData.publicUrl, userId)
+      }
+      
+      setSelectedFile(null)
+      alert('Файл загружен! ИИ начал обработку. Статус обновится через минуту.')
 
     } catch (error) {
       alert('Ошибка загрузки: ' + error.message)
@@ -149,7 +193,9 @@ export default function Dashboard() {
                   <div>
                     <p className="font-medium">{doc.filename}</p>
                     <p className="text-sm text-gray-500">
-                      Статус: {doc.status === 'completed' ? '✅ Готов к игре' : '🔄 Обрабатывается...'}
+                      Статус: {doc.status === 'completed' ? '✅ Готов к игре' : 
+                               doc.status === 'processing' ? '🔄 Обрабатывается...' : 
+                               '⏳ Ожидает обработки'}
                     </p>
                   </div>
                   {doc.status === 'completed' && (
