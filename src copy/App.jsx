@@ -1,6 +1,6 @@
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
 import { useEffect, useState } from 'react'
-import { supabase } from './lib/supabase'
+import { supabase } from '../../src/lib/supabase'
 import Auth from './components/Auth'
 import Dashboard from './components/Dashboard'
 import QuizGame from './components/QuizGame'
