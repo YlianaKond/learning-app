@@ -1,21 +1,29 @@
 import { createClient } from '@supabase/supabase-js';
 import { HfInference } from '@huggingface/inference';
-
+import mammoth from 'mammoth';
 // Функция для извлечения текста из файла
 async function extractTextFromFile(fileUrl) {
-  try {
-    const response = await fetch(fileUrl);
-    const buffer = await response.arrayBuffer();
-    const text = new TextDecoder('utf-8').decode(buffer);
-    
-    if (!text || text.length < 50) {
-      throw new Error('Файл слишком короткий или не содержит текста');
+  const response = await fetch(fileUrl);
+  const arrayBuffer = await response.arrayBuffer();
+
+  // Определяем тип файла по расширению в URL
+  const isDocx = fileUrl.toLowerCase().endsWith('.docx');
+
+  if (isDocx) {
+    console.log('📄 Обнаружен DOCX файл, использую mammoth для извлечения текста...');
+    const result = await mammoth.extractRawText({ arrayBuffer: arrayBuffer });
+    const text = result.value;
+    if (!text || text.trim().length === 0) {
+      throw new Error('Не удалось извлечь текст из DOCX-файла. Файл может быть пустым или содержать только изображения.');
     }
-    
     return text;
-  } catch (error) {
-    console.error('Ошибка извлечения текста:', error);
-    throw new Error(`Не удалось извлечь текст: ${error.message}`);
+  } else {
+    // Для TXT и других текстовых форматов
+    const text = new TextDecoder('utf-8').decode(arrayBuffer);
+    if (!text || text.trim().length === 0) {
+      throw new Error('Текстовый файл пуст.');
+    }
+    return text;
   }
 }
 
@@ -44,19 +52,28 @@ async function generateQuestionsFromText(text, hf) {
 
   try {
     const response = await hf.textGeneration({
-      model: 'microsoft/Phi-3-mini-4k-instruct',
-      inputs: prompt,
-      parameters: {
-        max_new_tokens: 1000,
-        temperature: 0.7,
-        top_p: 0.95,
-        do_sample: true,
-        return_full_text: false
-      }
-    });
+  model: 'HuggingFaceH4/zephyr-7b-beta',  // ← другая бесплатная модель
+  inputs: prompt,
+  parameters: { max_new_tokens: 1000 }
+});
 
-    const generatedText = response.generated_text;
-    console.log('Ответ модели:', generatedText.substring(0, 300));
+   let generatedText = null;
+
+// 1. Пробуем получить ответ, если это объект (один ответ)
+if (response.generated_text) {
+    generatedText = response.generated_text;
+}
+// 2. Пробуем получить ответ, если это массив (несколько ответов)
+else if (Array.isArray(response) && response.length > 0 && response[0].generated_text) {
+    generatedText = response[0].generated_text;
+}
+// 3. Если ничего не нашли, выводим ошибку
+else {
+    console.error('Неизвестный формат ответа от Hugging Face:', JSON.stringify(response).substring(0, 200));
+    throw new Error('Не удалось распознать ответ от ИИ-модели');
+}
+
+console.log('✅ Ответ от ИИ получен, длина:', generatedText.length);
 
     const jsonMatch = generatedText.match(/\[[\s\S]*\]/);
     if (!jsonMatch) {
