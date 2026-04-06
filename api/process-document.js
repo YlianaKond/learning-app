@@ -3,27 +3,61 @@ import { HfInference } from '@huggingface/inference';
 import mammoth from 'mammoth';
 // Функция для извлечения текста из файла
 async function extractTextFromFile(fileUrl) {
-  const response = await fetch(fileUrl);
-  const arrayBuffer = await response.arrayBuffer();
-
-  // Определяем тип файла по расширению в URL
-  const isDocx = fileUrl.toLowerCase().endsWith('.docx');
-
-  if (isDocx) {
-    console.log('📄 Обнаружен DOCX файл, использую mammoth для извлечения текста...');
-    const result = await mammoth.extractRawText({ arrayBuffer: arrayBuffer });
-    const text = result.value;
-    if (!text || text.trim().length === 0) {
-      throw new Error('Не удалось извлечь текст из DOCX-файла. Файл может быть пустым или содержать только изображения.');
+  try {
+    console.log(`📥 Скачиваем файл: ${fileUrl}`);
+    
+    const response = await fetch(fileUrl);
+    
+    if (!response.ok) {
+      throw new Error(`Ошибка загрузки файла: ${response.status} ${response.statusText}`);
     }
-    return text;
-  } else {
-    // Для TXT и других текстовых форматов
-    const text = new TextDecoder('utf-8').decode(arrayBuffer);
-    if (!text || text.trim().length === 0) {
-      throw new Error('Текстовый файл пуст.');
+    
+    const arrayBuffer = await response.arrayBuffer();
+    console.log(`📦 Размер файла: ${arrayBuffer.byteLength} байт`);
+    
+    // Определяем тип файла по расширению в URL
+    const isDocx = fileUrl.toLowerCase().endsWith('.docx');
+    const isTxt = fileUrl.toLowerCase().endsWith('.txt');
+    
+    if (isDocx) {
+      console.log('📄 Обработка DOCX файла...');
+      // Для mammoth нужно передать arrayBuffer напрямую
+      const result = await mammoth.extractRawText({ arrayBuffer: arrayBuffer });
+      const text = result.value;
+      
+      if (!text || text.trim().length === 0) {
+        throw new Error('DOCX файл не содержит текста');
+      }
+      
+      console.log(`✅ Извлечено ${text.length} символов из DOCX`);
+      return text;
+      
+    } else if (isTxt) {
+      console.log('📄 Обработка TXT файла...');
+      const text = new TextDecoder('utf-8').decode(arrayBuffer);
+      
+      if (!text || text.trim().length === 0) {
+        throw new Error('TXT файл пуст');
+      }
+      
+      console.log(`✅ Извлечено ${text.length} символов из TXT`);
+      return text;
+      
+    } else {
+      // Для других типов пытаемся прочитать как текст
+      console.log('📄 Неизвестный тип, пробуем прочитать как текст...');
+      const text = new TextDecoder('utf-8').decode(arrayBuffer);
+      
+      if (!text || text.trim().length < 50) {
+        throw new Error('Файл слишком короткий или не содержит текста');
+      }
+      
+      return text;
     }
-    return text;
+    
+  } catch (error) {
+    console.error('❌ Ошибка извлечения текста:', error);
+    throw new Error(`Не удалось извлечь текст: ${error.message}`);
   }
 }
 
