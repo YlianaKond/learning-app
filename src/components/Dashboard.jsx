@@ -40,17 +40,13 @@ export default function Dashboard() {
     if (data) setDocuments(data)
   }
 
-  // ============================================================
-  // ФУНКЦИЯ ВЫЗОВА WORKER (ВСТАВЬ СЮДА СВОЙ URL!)
-  // ============================================================
+  // Функция вызова Worker
   const processDocument = async (documentId, fileUrl, userId) => {
-    console.log('🔔 Функция processDocument вызвана!')
-    // ЗАМЕНИ НА URL ТВОЕГО WORKER'а!
     const workerUrl = '/api/process-document'
     
     try {
-      console.log('Вызов Worker для обработки файла:', documentId)
-      console.log('📍 URL Worker:', workerUrl)
+      console.log('📡 Вызов Worker для обработки файла:', documentId)
+      
       const response = await fetch(workerUrl, {
         method: 'POST',
         headers: {
@@ -62,14 +58,12 @@ export default function Dashboard() {
           userId
         })
       })
-      console.log('📊 Статус ответа:', response.status)
+      
       const result = await response.json()
-      console.log('📦 Ответ Worker:', result)
+      
       if (result.success) {
         console.log(`✅ Успешно! Сгенерировано ${result.questionsCount} вопросов`)
-        // Обновляем список документов, чтобы увидеть статус
-        const user = await supabase.auth.getUser()
-        await loadDocuments(user.data.user.id)
+        await loadDocuments(userId)
       } else {
         console.error('❌ Ошибка обработки:', result.error)
       }
@@ -78,6 +72,7 @@ export default function Dashboard() {
     }
   }
 
+  // Функция загрузки файла
   const handleFileUpload = async (e) => {
     e.preventDefault()
     if (!selectedFile) return
@@ -119,13 +114,13 @@ export default function Dashboard() {
       // 4. Обновляем список документов
       await loadDocuments(userId)
       
-      // 5. ВЫЗЫВАЕМ WORKER ДЛЯ ОБРАБОТКИ ФАЙЛА
+      // 5. Вызываем Worker для обработки
       if (docData && docData[0]) {
         await processDocument(docData[0].id, urlData.publicUrl, userId)
       }
       
       setSelectedFile(null)
-      alert('Файл загружен! ИИ начал обработку. Статус обновится через минуту.')
+      alert('Файл загружен! ИИ начал обработку.')
 
     } catch (error) {
       alert('Ошибка загрузки: ' + error.message)
@@ -133,6 +128,62 @@ export default function Dashboard() {
       setUploading(false)
     }
   }
+
+  // Функция удаления документа
+  const deleteDocument = async (documentId, filename) => {
+    // Подтверждение удаления
+    const confirmDelete = window.confirm(`Удалить файл "${filename}"?\nВсе вопросы по этому файлу также будут удалены.`);
+    
+    if (!confirmDelete) return;
+
+    try {
+      // 1. Получаем информацию о файле (нужен путь в Storage)
+      const { data: document, error: docError } = await supabase
+        .from('documents')
+        .select('file_url')
+        .eq('id', documentId)
+        .single();
+
+      if (docError) throw docError;
+
+      // 2. Удаляем вопросы, связанные с документом
+      const { error: questionsError } = await supabase
+        .from('questions')
+        .delete()
+        .eq('document_id', documentId);
+
+      if (questionsError) throw questionsError;
+
+      // 3. Удаляем файл из Storage
+      // Извлекаем путь из URL
+      const filePath = document.file_url.split('/storage/v1/object/documents/')[1];
+      if (filePath) {
+        const { error: storageError } = await supabase.storage
+          .from('documents')
+          .remove([filePath]);
+
+        if (storageError) throw storageError;
+      }
+
+      // 4. Удаляем запись о документе из таблицы
+      const { error: deleteError } = await supabase
+        .from('documents')
+        .delete()
+        .eq('id', documentId);
+
+      if (deleteError) throw deleteError;
+
+      // 5. Обновляем список документов
+      const user = await supabase.auth.getUser();
+      await loadDocuments(user.data.user.id);
+      
+      alert(`Файл "${filename}" удалён`);
+
+    } catch (error) {
+      console.error('Ошибка удаления:', error);
+      alert('Ошибка удаления: ' + error.message);
+    }
+  };
 
   const startGame = (documentId) => {
     navigate(`/game/${documentId}`)
@@ -166,7 +217,7 @@ export default function Dashboard() {
           <form onSubmit={handleFileUpload} className="space-y-4">
             <input
               type="file"
-              accept=".pdf,.docx"
+              accept=".txt,.pdf,.docx"
               onChange={(e) => setSelectedFile(e.target.files[0])}
               className="block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-md file:border-0 file:text-sm file:font-semibold file:bg-indigo-50 file:text-indigo-700 hover:file:bg-indigo-100"
             />
@@ -190,22 +241,33 @@ export default function Dashboard() {
             <div className="space-y-4">
               {documents.map((doc) => (
                 <div key={doc.id} className="border rounded-lg p-4 flex justify-between items-center">
-                  <div>
+                  <div className="flex-1">
                     <p className="font-medium">{doc.filename}</p>
                     <p className="text-sm text-gray-500">
                       Статус: {doc.status === 'completed' ? '✅ Готов к игре' : 
                                doc.status === 'processing' ? '🔄 Обрабатывается...' : 
                                '⏳ Ожидает обработки'}
                     </p>
+                    <p className="text-xs text-gray-400">
+                      Загружен: {new Date(doc.created_at).toLocaleString()}
+                    </p>
                   </div>
-                  {doc.status === 'completed' && (
+                  <div className="flex gap-2 ml-4">
+                    {doc.status === 'completed' && (
+                      <button
+                        onClick={() => startGame(doc.id)}
+                        className="bg-green-600 text-white px-4 py-2 rounded-md hover:bg-green-700"
+                      >
+                        Играть 🎮
+                      </button>
+                    )}
                     <button
-                      onClick={() => startGame(doc.id)}
-                      className="bg-green-600 text-white px-4 py-2 rounded-md hover:bg-green-700"
+                      onClick={() => deleteDocument(doc.id, doc.filename)}
+                      className="bg-red-500 text-white px-4 py-2 rounded-md hover:bg-red-700"
                     >
-                      Играть 🎮
+                      Удалить 🗑️
                     </button>
-                  )}
+                  </div>
                 </div>
               ))}
             </div>
