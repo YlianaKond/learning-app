@@ -41,36 +41,42 @@ export default function Dashboard() {
   }
 
   // Функция вызова Worker для обработки файла
-  const processDocument = async (documentId, fileUrl, userId) => {
-    const workerUrl = '/api/process-document'
+const processDocument = async (documentId, fileUrl, userId) => {
+  const workerUrl = '/api/process-document'
+  
+  try {
+    console.log('📡 Вызов Worker для обработки файла:', documentId)
     
-    try {
-      console.log('📡 Вызов Worker для обработки файла:', documentId)
-      
-      const response = await fetch(workerUrl, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          fileUrl,
-          documentId,
-          userId
-        })
+    const response = await fetch(workerUrl, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        fileUrl,
+        documentId,
+        userId
       })
-      
-      const result = await response.json()
-      
-      if (result.success) {
-        console.log(`✅ Успешно! ${result.message}`)
-        await loadDocuments(userId)
-      } else {
-        console.error('❌ Ошибка обработки:', result.error)
-      }
-    } catch (error) {
-      console.error('❌ Ошибка вызова Worker:', error)
+    })
+    
+    const result = await response.json()
+    
+    if (result.success) {
+      console.log(`✅ Успешно! ${result.message}`)
+      // Принудительно обновляем список документов
+      setTimeout(async () => {
+        const user = await supabase.auth.getUser()
+        if (user.data.user) {
+          await loadDocuments(user.data.user.id)
+        }
+      }, 2000)
+    } else {
+      console.error('❌ Ошибка обработки:', result.error)
     }
+  } catch (error) {
+    console.error('❌ Ошибка вызова Worker:', error)
   }
+}
 
   // Функция загрузки файла
   const handleFileUpload = async (e) => {
