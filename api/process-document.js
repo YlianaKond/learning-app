@@ -1,9 +1,11 @@
 import { createClient } from '@supabase/supabase-js';
-// ⚠️ ВРЕМЕННО: вставь свои данные из Supabase
-const SUPABASE_URL = 'https://mkqaypulsliglvdrnnhe.supabase.co';
-const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im1rcWF5cHVsc2xpZ2x2ZHJubmhlIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQzNDYxMDEsImV4cCI6MjA4OTkyMjEwMX0.rNBxEr4LUDNVt5cf0wKRmgxuBhZhssAuIJSqmqkE-po'; // ← ВСТАВЬ СВОЙ КЛЮЧ!
+
+// ТВОИ ДАННЫЕ (скопируй из Supabase)
+const supabaseUrl = 'https://mkqaypulsliglvdrnnhe.supabase.co';
+const supabaseAnonKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im1rcWF5cHVsc2xpZ2x2ZHJubmhlIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQzNDYxMDEsImV4cCI6MjA4OTkyMjEwMX0.rNBxEr4LUDNVt5cf0wKRmgxuBhZhssAuIJSqmqkE-po'; // ЗАМЕНИ НА СВОЙ АНОНИМНЫЙ КЛЮЧ!
+
 export default async function handler(req, res) {
-  // CORS заголовки
+  // Разрешаем запросы с любого источника (CORS)
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
@@ -18,133 +20,82 @@ export default async function handler(req, res) {
 
   try {
     const { documentId, userId, fileUrl } = req.body;
-    
-    console.log(`📥 Начало обработки документа: ${documentId}`);
-    console.log(`👤 Пользователь: ${userId}`);
-    console.log(`📎 URL файла: ${fileUrl}`);
+    console.log(`📥 Обработка документа: ${documentId}`);
 
     // Подключаемся к Supabase
-    const supabaseUrl = process.env.SUPABASE_URL;
-    const supabaseKey = process.env.SUPABASE_ANON_KEY;
+    const supabase = createClient(supabaseUrl, supabaseAnonKey);
 
-    if (!supabaseUrl || !supabaseKey) {
-      console.error('❌ Переменные окружения не найдены!');
-      throw new Error('Отсутствуют переменные окружения Supabase');
+    // 1. ПРОВЕРКА: Можем ли мы вообще прочитать таблицу documents?
+    const { data: testData, error: testError } = await supabase
+      .from('documents')
+      .select('id')
+      .limit(1);
+
+    if (testError) {
+      console.error('❌ Ошибка подключения к Supabase:', testError);
+      throw new Error(`Ошибка БД: ${testError.message}`);
     }
+    console.log('✅ Подключение к Supabase работает!');
 
-    const supabase = createClient(supabaseUrl, supabaseKey);
-    console.log('✅ Подключение к Supabase установлено');
-
-    // Проверяем, есть ли уже вопросы для этого документа
+    // 2. Проверяем, есть ли уже вопросы для этого документа
     const { data: existingQuestions, error: checkError } = await supabase
       .from('questions')
       .select('id')
       .eq('document_id', documentId);
 
-    if (checkError) {
-      console.error('❌ Ошибка проверки вопросов:', checkError);
-    }
-
     if (existingQuestions && existingQuestions.length > 0) {
-      console.log(`📋 Вопросы уже существуют (${existingQuestions.length} шт.)`);
-      
-      // Обновляем статус документа
-      await supabase
-        .from('documents')
-        .update({ status: 'completed' })
-        .eq('id', documentId);
-      
-      return res.status(200).json({
-        success: true,
-        questionsCount: existingQuestions.length,
-        message: `Вопросы уже существуют (${existingQuestions.length} шт.)`
-      });
+      console.log(`📋 Вопросы уже есть (${existingQuestions.length})`);
+      await supabase.from('documents').update({ status: 'completed' }).eq('id', documentId);
+      return res.status(200).json({ success: true, questionsCount: existingQuestions.length });
     }
 
-    // Генерируем уникальные вопросы для каждого документа
-    const uniqueId = documentId.slice(-8);
+    // 3. Создаём вопросы
     const questions = [
       {
         document_id: documentId,
-        text: `Какова основная тема документа ${uniqueId}?`,
-        options: [
-          "Технологии и программирование",
-          "Природа и экология",
-          "История и культура",
-          "Здоровье и спорт"
-        ],
-        correct_answer: "Технологии и программирование",
+        text: "Какова основная тема этого документа?",
+        options: ["Технологии", "Природа", "История", "Искусство"],
+        correct_answer: "Технологии",
         difficulty: "easy",
-        topic: "Основная тема"
+        topic: "Тема"
       },
       {
         document_id: documentId,
-        text: `Что нового вы узнали из документа ${uniqueId}?`,
-        options: [
-          "Новые технологии",
-          "Интересные факты",
-          "Практические советы",
-          "Теоретические знания"
-        ],
-        correct_answer: "Новые технологии",
+        text: "Какую пользу можно получить из этого документа?",
+        options: ["Новые знания", "Развлечение", "Рекламу", "Никакую"],
+        correct_answer: "Новые знания",
         difficulty: "medium",
-        topic: "Новые знания"
+        topic: "Польза"
       },
       {
         document_id: documentId,
-        text: `Для кого предназначен документ ${uniqueId}?`,
-        options: [
-          "Для начинающих",
-          "Для профессионалов",
-          "Для студентов",
-          "Для всех"
-        ],
-        correct_answer: "Для начинающих",
+        text: "Кому будет полезен этот материал?",
+        options: ["Студентам", "Профессионалам", "Всем", "Детям"],
+        correct_answer: "Студентам",
         difficulty: "medium",
         topic: "Аудитория"
       }
     ];
 
-    // Сохраняем вопросы
     let savedCount = 0;
     for (const q of questions) {
-      const { error: insertError } = await supabase
-        .from('questions')
-        .insert(q);
-      
+      const { error: insertError } = await supabase.from('questions').insert(q);
       if (insertError) {
-        console.error('❌ Ошибка сохранения вопроса:', insertError.message);
+        console.error('❌ Ошибка вставки:', insertError);
       } else {
         savedCount++;
-        console.log(`✅ Вопрос сохранен: ${q.text.substring(0, 50)}...`);
       }
     }
 
-    console.log(`🏁 Сохранено ${savedCount} из ${questions.length} вопросов`);
+    console.log(`✅ Сохранено ${savedCount} вопросов`);
 
-    // Обновляем статус документа
-    const { error: updateError } = await supabase
-      .from('documents')
-      .update({ status: 'completed' })
-      .eq('id', documentId);
+    // 4. Обновляем статус документа
+    await supabase.from('documents').update({ status: 'completed' }).eq('id', documentId);
 
-    if (updateError) {
-      console.error('❌ Ошибка обновления статуса:', updateError);
-    } else {
-      console.log(`✅ Статус документа ${documentId} обновлён на 'completed'`);
-    }
-
-    return res.status(200).json({
-      success: true,
-      questionsCount: savedCount,
-      message: `Сгенерировано ${savedCount} вопросов`
-    });
+    return res.status(200).json({ success: true, questionsCount: savedCount });
 
   } catch (error) {
     console.error('❌ Критическая ошибка:', error);
-    return res.status(500).json({ 
-      success: false, 
-      error: error.message 
-    });
+    return res.status(500).json({ success: false, error: error.message });
   }
 }
