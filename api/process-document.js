@@ -1,7 +1,7 @@
 import { createClient } from '@supabase/supabase-js';
 
 export default async function handler(req, res) {
-  // Настройки CORS
+  // CORS заголовки
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
@@ -11,97 +11,105 @@ export default async function handler(req, res) {
   }
 
   if (req.method !== 'POST') {
-    return res.status(405).json({ error: 'Метод не поддерживается. Используйте POST.' });
+    return res.status(405).json({ error: 'Используй POST' });
   }
 
   try {
     const { documentId, userId, fileUrl } = req.body;
-    console.log(`📥 Начало обработки документа ${documentId} для пользователя ${userId}`);
+    
+    console.log(`📥 Получен запрос: documentId=${documentId}, userId=${userId}`);
 
-    // ПРОВЕРЯЕМ ПЕРЕМЕННЫЕ ОКРУЖЕНИЯ
+    // Подключаемся к Supabase
     const supabaseUrl = process.env.SUPABASE_URL;
-    const supabaseKey = process.env.SUPABASE_ANON_KEY;
+    const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_ANON_KEY;
 
-    if (!supabaseUrl) {
-      console.error('❌ Ошибка: переменная SUPABASE_URL не найдена!');
-      throw new Error('SUPABASE_URL is not defined');
+    if (!supabaseUrl || !supabaseKey) {
+      console.error('❌ Переменные окружения не найдены!');
+      throw new Error('Отсутствуют переменные окружения Supabase');
     }
-    if (!supabaseKey) {
-      console.error('❌ Ошибка: переменная SUPABASE_ANON_KEY не найдена!');
-      throw new Error('SUPABASE_ANON_KEY is not defined');
-    }
-    console.log('✅ Переменные окружения найдены.');
 
-    // ПОДКЛЮЧАЕМСЯ К SUPABASE
     const supabase = createClient(supabaseUrl, supabaseKey);
-    console.log('✅ Подключение к Supabase установлено.');
+    console.log('✅ Подключение к Supabase установлено');
 
-    // ГЕНЕРИРУЕМ ТЕСТОВЫЕ ВОПРОСЫ
-    const uniqueSuffix = documentId.slice(-6);
-    const questionsToInsert = [
+    // Генерируем вопросы на основе documentId (уникальные для каждого файла)
+    const shortId = documentId.slice(-8);
+    const questions = [
       {
         document_id: documentId,
-        text: `Какова основная тема документа "${uniqueSuffix}"?`,
-        options: ["Технологии и программирование", "Природа и экология", "История и культура", "Здоровье и спорт"],
-        correct_answer: "Технологии и программирование",
+        text: `О чем говорится в документе ${shortId}?`,
+        options: [
+          "О технологиях и программировании",
+          "О природе и экологии", 
+          "Об истории и культуре",
+          "О здоровье и спорте"
+        ],
+        correct_answer: "О технологиях и программировании",
         difficulty: "easy",
-        topic: "Основная тема"
+        topic: "Тема документа"
       },
       {
         document_id: documentId,
-        text: `Какую пользу можно получить из этого документа?`,
-        options: ["Получить новые знания", "Провести время с пользой", "Научиться новому навыку", "Вдохновиться на новые идеи"],
-        correct_answer: "Получить новые знания",
+        text: "Какую основную мысль автор хочет донести?",
+        options: [
+          "Важность самообразования",
+          "Необходимость практики",
+          "Ценность новых знаний",
+          "Роль технологий в жизни"
+        ],
+        correct_answer: "Ценность новых знаний",
         difficulty: "medium",
-        topic: "Польза документа"
+        topic: "Основная мысль"
       },
       {
         document_id: documentId,
-        text: `Кому в первую очередь будет полезен этот документ?`,
-        options: ["Студентам и начинающим", "Опытным экспертам", "Руководителям", "Людям без опыта"],
-        correct_answer: "Студентам и начинающим",
+        text: "Кому будет полезен этот материал?",
+        options: [
+          "Начинающим специалистам",
+          "Опытным профессионалам",
+          "Руководителям",
+          "Преподавателям"
+        ],
+        correct_answer: "Начинающим специалистам",
         difficulty: "medium",
         topic: "Целевая аудитория"
       }
     ];
 
-    // СОХРАНЯЕМ ВОПРОСЫ
+    // Сохраняем вопросы
     let savedCount = 0;
-    for (const q of questionsToInsert) {
+    for (const q of questions) {
       const { error } = await supabase.from('questions').insert(q);
       if (error) {
-        console.error(`❌ Ошибка при сохранении вопроса:`, error.message);
+        console.error('❌ Ошибка сохранения вопроса:', error.message);
       } else {
         savedCount++;
       }
     }
-    console.log(`🏁 Итого сохранено вопросов: ${savedCount}`);
+    console.log(`✅ Сохранено ${savedCount} вопросов`);
 
-    // ОБНОВЛЯЕМ СТАТУС ДОКУМЕНТА
+    // Обновляем статус документа
     const { error: updateError } = await supabase
       .from('documents')
       .update({ status: 'completed' })
       .eq('id', documentId);
 
     if (updateError) {
-      console.error(`❌ Ошибка обновления статуса:`, updateError);
+      console.error('❌ Ошибка обновления статуса:', updateError);
     } else {
-      console.log(`✅ Статус документа ${documentId} обновлен на 'completed'`);
+      console.log(`✅ Статус документа ${documentId} обновлён на 'completed'`);
     }
 
-    // ОТПРАВЛЯЕМ УСПЕШНЫЙ ОТВЕТ
     return res.status(200).json({
       success: true,
       questionsCount: savedCount,
-      message: `Обработка завершена. Сгенерировано ${savedCount} вопросов.`
+      message: `Сгенерировано ${savedCount} вопросов`
     });
 
   } catch (error) {
-    console.error('❌ КРИТИЧЕСКАЯ ОШИБКА В API:', error);
-    return res.status(500).json({
-      success: false,
-      error: 'Внутренняя ошибка сервера.',
-      details: error.message
+    console.error('❌ Критическая ошибка:', error);
+    return res.status(500).json({ 
+      success: false, 
+      error: error.message 
     });
   }
 }

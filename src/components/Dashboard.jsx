@@ -10,7 +10,6 @@ export default function Dashboard() {
   const navigate = useNavigate()
 
   useEffect(() => {
-    // Проверяем авторизацию
     supabase.auth.getUser().then(({ data }) => {
       if (!data.user) {
         navigate('/auth')
@@ -20,7 +19,6 @@ export default function Dashboard() {
       }
     })
 
-    // Слушаем изменения авторизации
     const { data: listener } = supabase.auth.onAuthStateChange((event, session) => {
       if (event === 'SIGNED_OUT') {
         navigate('/auth')
@@ -40,7 +38,6 @@ export default function Dashboard() {
     if (data) setDocuments(data)
   }
 
-  // Функция вызова Worker
   const processDocument = async (documentId, fileUrl, userId) => {
     const workerUrl = '/api/process-document'
     
@@ -49,20 +46,14 @@ export default function Dashboard() {
       
       const response = await fetch(workerUrl, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          fileUrl,
-          documentId,
-          userId
-        })
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ fileUrl, documentId, userId })
       })
       
       const result = await response.json()
       
       if (result.success) {
-        console.log(`✅ Успешно! Сгенерировано ${result.questionsCount} вопросов`)
+        console.log(`✅ Успешно! ${result.message}`)
         await loadDocuments(userId)
       } else {
         console.error('❌ Ошибка обработки:', result.error)
@@ -72,7 +63,6 @@ export default function Dashboard() {
     }
   }
 
-  // Функция загрузки файла
   const handleFileUpload = async (e) => {
     e.preventDefault()
     if (!selectedFile) return
@@ -82,7 +72,6 @@ export default function Dashboard() {
     const userId = user.data.user.id
 
     try {
-      // 1. Загружаем файл в Storage
       const fileExt = selectedFile.name.split('.').pop()
       const fileName = `${Date.now()}.${fileExt}`
       const filePath = `${userId}/${fileName}`
@@ -93,12 +82,10 @@ export default function Dashboard() {
 
       if (uploadError) throw uploadError
 
-      // 2. Получаем публичный URL
       const { data: urlData } = supabase.storage
         .from('documents')
         .getPublicUrl(filePath)
 
-      // 3. Сохраняем запись в таблицу documents
       const { data: docData, error: dbError } = await supabase
         .from('documents')
         .insert({
@@ -111,16 +98,14 @@ export default function Dashboard() {
 
       if (dbError) throw dbError
 
-      // 4. Обновляем список документов
       await loadDocuments(userId)
       
-      // 5. Вызываем Worker для обработки
       if (docData && docData[0]) {
         await processDocument(docData[0].id, urlData.publicUrl, userId)
       }
       
       setSelectedFile(null)
-      alert('Файл загружен! ИИ начал обработку.')
+      alert('Файл загружен! Начинается генерация вопросов.')
 
     } catch (error) {
       alert('Ошибка загрузки: ' + error.message)
@@ -131,13 +116,13 @@ export default function Dashboard() {
 
   // Функция удаления документа
   const deleteDocument = async (documentId, filename) => {
-    // Подтверждение удаления
     const confirmDelete = window.confirm(`Удалить файл "${filename}"?\nВсе вопросы по этому файлу также будут удалены.`);
-    
     if (!confirmDelete) return;
 
     try {
-      // 1. Получаем информацию о файле (нужен путь в Storage)
+      console.log('🗑️ Удаляем документ:', documentId);
+
+      // 1. Получаем путь к файлу в Storage
       const { data: document, error: docError } = await supabase
         .from('documents')
         .select('file_url')
@@ -146,41 +131,51 @@ export default function Dashboard() {
 
       if (docError) throw docError;
 
-      // 2. Удаляем вопросы, связанные с документом
+      // 2. Удаляем вопросы
       const { error: questionsError } = await supabase
         .from('questions')
         .delete()
         .eq('document_id', documentId);
 
-      if (questionsError) throw questionsError;
-
-      // 3. Удаляем файл из Storage
-      // Извлекаем путь из URL
-      const filePath = document.file_url.split('/storage/v1/object/documents/')[1];
-      if (filePath) {
-        const { error: storageError } = await supabase.storage
-          .from('documents')
-          .remove([filePath]);
-
-        if (storageError) throw storageError;
+      if (questionsError) {
+        console.error('Ошибка удаления вопросов:', questionsError);
+      } else {
+        console.log('✅ Вопросы удалены');
       }
 
-      // 4. Удаляем запись о документе из таблицы
+      // 3. Удаляем файл из Storage
+      if (document?.file_url) {
+        const filePath = document.file_url.split('/storage/v1/object/documents/')[1];
+        if (filePath) {
+          const { error: storageError } = await supabase.storage
+            .from('documents')
+            .remove([filePath]);
+          
+          if (storageError) {
+            console.error('Ошибка удаления файла:', storageError);
+          } else {
+            console.log('✅ Файл удалён из Storage');
+          }
+        }
+      }
+
+      // 4. Удаляем запись из таблицы documents
       const { error: deleteError } = await supabase
         .from('documents')
         .delete()
         .eq('id', documentId);
 
       if (deleteError) throw deleteError;
+      console.log('✅ Запись удалена из БД');
 
-      // 5. Обновляем список документов
+      // 5. Обновляем список
       const user = await supabase.auth.getUser();
       await loadDocuments(user.data.user.id);
       
-      alert(`Файл "${filename}" удалён`);
+      alert(`✅ Файл "${filename}" удалён`);
 
     } catch (error) {
-      console.error('Ошибка удаления:', error);
+      console.error('❌ Ошибка удаления:', error);
       alert('Ошибка удаления: ' + error.message);
     }
   };
@@ -200,10 +195,7 @@ export default function Dashboard() {
           <h1 className="text-2xl font-bold text-indigo-600">LearnApp</h1>
           <div className="flex items-center gap-4">
             <span className="text-gray-600">{user?.email}</span>
-            <button
-              onClick={logout}
-              className="bg-red-500 text-white px-4 py-2 rounded-md hover:bg-red-600"
-            >
+            <button onClick={logout} className="bg-red-500 text-white px-4 py-2 rounded-md hover:bg-red-600">
               Выйти
             </button>
           </div>
@@ -211,7 +203,6 @@ export default function Dashboard() {
       </nav>
 
       <div className="max-w-7xl mx-auto px-4 py-8">
-        {/* Форма загрузки файлов */}
         <div className="bg-white rounded-lg shadow p-6 mb-8">
           <h2 className="text-xl font-semibold mb-4">Загрузить учебный материал</h2>
           <form onSubmit={handleFileUpload} className="space-y-4">
@@ -231,7 +222,6 @@ export default function Dashboard() {
           </form>
         </div>
 
-        {/* Список документов */}
         <div className="bg-white rounded-lg shadow p-6">
           <h2 className="text-xl font-semibold mb-4">Мои материалы</h2>
           
@@ -254,17 +244,11 @@ export default function Dashboard() {
                   </div>
                   <div className="flex gap-2 ml-4">
                     {doc.status === 'completed' && (
-                      <button
-                        onClick={() => startGame(doc.id)}
-                        className="bg-green-600 text-white px-4 py-2 rounded-md hover:bg-green-700"
-                      >
+                      <button onClick={() => startGame(doc.id)} className="bg-green-600 text-white px-4 py-2 rounded-md hover:bg-green-700">
                         Играть 🎮
                       </button>
                     )}
-                    <button
-                      onClick={() => deleteDocument(doc.id, doc.filename)}
-                      className="bg-red-500 text-white px-4 py-2 rounded-md hover:bg-red-700"
-                    >
+                    <button onClick={() => deleteDocument(doc.id, doc.filename)} className="bg-red-500 text-white px-4 py-2 rounded-md hover:bg-red-700">
                       Удалить 🗑️
                     </button>
                   </div>
