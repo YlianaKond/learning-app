@@ -1,5 +1,7 @@
 import { createClient } from '@supabase/supabase-js';
-
+// ⚠️ ВРЕМЕННО: вставь свои данные из Supabase
+const SUPABASE_URL = 'https://mkqaypulsliglvdrnnhe.supabase.co';
+const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im1rcWF5cHVsc2xpZ2x2ZHJubmhlIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQzNDYxMDEsImV4cCI6MjA4OTkyMjEwMX0.rNBxEr4LUDNVt5cf0wKRmgxuBhZhssAuIJSqmqkE-po'; // ← ВСТАВЬ СВОЙ КЛЮЧ!
 export default async function handler(req, res) {
   // CORS заголовки
   res.setHeader('Access-Control-Allow-Origin', '*');
