@@ -10,6 +10,7 @@ export default function Dashboard() {
   const navigate = useNavigate()
 
   useEffect(() => {
+    // Проверяем авторизацию
     supabase.auth.getUser().then(({ data }) => {
       if (!data.user) {
         navigate('/auth')
@@ -19,6 +20,7 @@ export default function Dashboard() {
       }
     })
 
+    // Слушаем изменения авторизации
     const { data: listener } = supabase.auth.onAuthStateChange((event, session) => {
       if (event === 'SIGNED_OUT') {
         navigate('/auth')
@@ -38,6 +40,7 @@ export default function Dashboard() {
     if (data) setDocuments(data)
   }
 
+  // Функция вызова Worker для обработки файла
   const processDocument = async (documentId, fileUrl, userId) => {
     const workerUrl = '/api/process-document'
     
@@ -46,8 +49,14 @@ export default function Dashboard() {
       
       const response = await fetch(workerUrl, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ fileUrl, documentId, userId })
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          fileUrl,
+          documentId,
+          userId
+        })
       })
       
       const result = await response.json()
@@ -63,6 +72,7 @@ export default function Dashboard() {
     }
   }
 
+  // Функция загрузки файла
   const handleFileUpload = async (e) => {
     e.preventDefault()
     if (!selectedFile) return
@@ -72,6 +82,7 @@ export default function Dashboard() {
     const userId = user.data.user.id
 
     try {
+      // 1. Загружаем файл в Storage
       const fileExt = selectedFile.name.split('.').pop()
       const fileName = `${Date.now()}.${fileExt}`
       const filePath = `${userId}/${fileName}`
@@ -82,10 +93,12 @@ export default function Dashboard() {
 
       if (uploadError) throw uploadError
 
+      // 2. Получаем публичный URL
       const { data: urlData } = supabase.storage
         .from('documents')
         .getPublicUrl(filePath)
 
+      // 3. Сохраняем запись в таблицу documents
       const { data: docData, error: dbError } = await supabase
         .from('documents')
         .insert({
@@ -98,8 +111,10 @@ export default function Dashboard() {
 
       if (dbError) throw dbError
 
+      // 4. Обновляем список документов
       await loadDocuments(userId)
       
+      // 5. Вызываем Worker для обработки
       if (docData && docData[0]) {
         await processDocument(docData[0].id, urlData.publicUrl, userId)
       }
@@ -108,106 +123,12 @@ export default function Dashboard() {
       alert('Файл загружен! Начинается генерация вопросов.')
 
     } catch (error) {
+      console.error('Ошибка загрузки:', error)
       alert('Ошибка загрузки: ' + error.message)
     } finally {
       setUploading(false)
     }
   }
-
-  // Функция удаления документа
- const deleteDocument = async (documentId, filename) => {
-  console.log('🗑️ НАЧАЛО УДАЛЕНИЯ:', documentId, filename);
-  
-  const confirmDelete = window.confirm(`Удалить файл "${filename}"?\nВсе вопросы по этому файлу также будут удалены.`);
-  if (!confirmDelete) {
-    console.log('❌ Удаление отменено пользователем');
-    return;
-  }
-
-  try {
-    // 1. Получаем информацию о документе
-    console.log('📄 Получаем информацию о документе...');
-    const { data: document, error: docError } = await supabase
-      .from('documents')
-      .select('*')
-      .eq('id', documentId)
-      .single();
-
-    if (docError) {
-      console.error('❌ Ошибка получения документа:', docError);
-      throw new Error('Документ не найден');
-    }
-    console.log('✅ Документ найден:', document);
-
-    // 2. Удаляем вопросы
-    console.log('🗑️ Удаляем связанные вопросы...');
-    const { error: questionsError } = await supabase
-      .from('questions')
-      .delete()
-      .eq('document_id', documentId);
-
-    if (questionsError) {
-      console.error('❌ Ошибка удаления вопросов:', questionsError);
-    } else {
-      console.log('✅ Вопросы удалены');
-    }
-
-    // 3. Удаляем файл из Storage
-    if (document.file_url) {
-      console.log('🗑️ Удаляем файл из Storage...');
-      console.log('🔗 URL файла:', document.file_url);
-      
-      // Извлекаем путь из URL
-      let filePath = null;
-      if (document.file_url.includes('/storage/v1/object/documents/')) {
-        filePath = document.file_url.split('/storage/v1/object/documents/')[1];
-      } else if (document.file_url.includes('/object/documents/')) {
-        filePath = document.file_url.split('/object/documents/')[1];
-      }
-      
-      console.log('📁 Путь к файлу:', filePath);
-      
-      if (filePath) {
-        const { error: storageError } = await supabase.storage
-          .from('documents')
-          .remove([filePath]);
-        
-        if (storageError) {
-          console.error('❌ Ошибка удаления из Storage:', storageError);
-        } else {
-          console.log('✅ Файл удалён из Storage');
-        }
-      }
-    }
-
-    // 4. Удаляем запись из таблицы documents
-    console.log('🗑️ Удаляем запись из БД...');
-    const { error: deleteError } = await supabase
-      .from('documents')
-      .delete()
-      .eq('id', documentId);
-
-    if (deleteError) {
-      console.error('❌ Ошибка удаления документа:', deleteError);
-      throw new Error('Не удалось удалить документ из БД');
-    }
-    console.log('✅ Запись удалена из БД');
-
-    // 5. Обновляем список документов
-    console.log('🔄 Обновляем список документов...');
-    const { data: userData } = await supabase.auth.getUser();
-    if (userData?.user) {
-      await loadDocuments(userData.user.id);
-    }
-    
-    console.log('✅ УДАЛЕНИЕ ЗАВЕРШЕНО УСПЕШНО!');
-    alert(`✅ Файл "${filename}" удалён`);
-
-  } catch (error) {
-    console.error('❌ КРИТИЧЕСКАЯ ОШИБКА:', error);
-    alert('Ошибка удаления: ' + error.message);
-  }
-};
 
   const startGame = (documentId) => {
     navigate(`/game/${documentId}`)
@@ -219,12 +140,16 @@ export default function Dashboard() {
 
   return (
     <div className="min-h-screen bg-gray-100">
+      {/* Навигационная панель */}
       <nav className="bg-white shadow-sm">
         <div className="max-w-7xl mx-auto px-4 py-3 flex justify-between items-center">
           <h1 className="text-2xl font-bold text-indigo-600">LearnApp</h1>
           <div className="flex items-center gap-4">
             <span className="text-gray-600">{user?.email}</span>
-            <button onClick={logout} className="bg-red-500 text-white px-4 py-2 rounded-md hover:bg-red-600">
+            <button
+              onClick={logout}
+              className="bg-red-500 text-white px-4 py-2 rounded-md hover:bg-red-600"
+            >
               Выйти
             </button>
           </div>
@@ -232,6 +157,7 @@ export default function Dashboard() {
       </nav>
 
       <div className="max-w-7xl mx-auto px-4 py-8">
+        {/* Форма загрузки файлов */}
         <div className="bg-white rounded-lg shadow p-6 mb-8">
           <h2 className="text-xl font-semibold mb-4">Загрузить учебный материал</h2>
           <form onSubmit={handleFileUpload} className="space-y-4">
@@ -251,6 +177,7 @@ export default function Dashboard() {
           </form>
         </div>
 
+        {/* Список документов */}
         <div className="bg-white rounded-lg shadow p-6">
           <h2 className="text-xl font-semibold mb-4">Мои материалы</h2>
           
@@ -273,13 +200,13 @@ export default function Dashboard() {
                   </div>
                   <div className="flex gap-2 ml-4">
                     {doc.status === 'completed' && (
-                      <button onClick={() => startGame(doc.id)} className="bg-green-600 text-white px-4 py-2 rounded-md hover:bg-green-700">
+                      <button
+                        onClick={() => startGame(doc.id)}
+                        className="bg-green-600 text-white px-4 py-2 rounded-md hover:bg-green-700"
+                      >
                         Играть 🎮
                       </button>
                     )}
-                    <button onClick={() => deleteDocument(doc.id, doc.filename)} className="bg-red-500 text-white px-4 py-2 rounded-md hover:bg-red-700">
-                      Удалить 🗑️
-                    </button>
                   </div>
                 </div>
               ))}

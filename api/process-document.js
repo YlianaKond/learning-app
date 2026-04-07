@@ -21,7 +21,7 @@ export default async function handler(req, res) {
 
     // Подключаемся к Supabase
     const supabaseUrl = process.env.SUPABASE_URL;
-    const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_ANON_KEY;
+    const supabaseKey = process.env.SUPABASE_ANON_KEY;
 
     if (!supabaseUrl || !supabaseKey) {
       console.error('❌ Переменные окружения не найдены!');
@@ -31,7 +31,7 @@ export default async function handler(req, res) {
     const supabase = createClient(supabaseUrl, supabaseKey);
     console.log('✅ Подключение к Supabase установлено');
 
-    // Генерируем вопросы на основе documentId (уникальные для каждого файла)
+    // Генерируем вопросы
     const shortId = documentId.slice(-8);
     const questions = [
       {
@@ -39,7 +39,7 @@ export default async function handler(req, res) {
         text: `О чем говорится в документе ${shortId}?`,
         options: [
           "О технологиях и программировании",
-          "О природе и экологии", 
+          "О природе и экологии",
           "Об истории и культуре",
           "О здоровье и спорте"
         ],
