@@ -1,130 +1,128 @@
 import { createClient } from '@supabase/supabase-js';
 
 export default async function handler(req, res) {
-  // CORS заголовки
+  // Настройки CORS (обязательно для работы из браузера)
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
 
+  // Обработка preflight-запроса (OPTIONS)
   if (req.method === 'OPTIONS') {
     return res.status(200).end();
   }
 
+  // Разрешаем только POST-запросы
   if (req.method !== 'POST') {
-    return res.status(405).json({ error: 'Используй POST' });
+    return res.status(405).json({ error: 'Метод не поддерживается. Используйте POST.' });
   }
 
   try {
-    const { fileUrl, documentId, userId } = req.body;
-    
-    console.log(`📥 Получен запрос: documentId=${documentId}`);
-    console.log(`📎 URL файла: ${fileUrl}`);
+    // 1. Получаем данные из запроса
+    const { documentId, userId, fileUrl } = req.body;
+    console.log(`📥 Начало обработки документа ${documentId} для пользователя ${userId}`);
 
-    // Подключаемся к Supabase
-    const supabase = createClient(
-      process.env.VITE_SUPABASE_URL,
-      process.env.VITE_SUPABASE_ANON_KEY
-    );
+    // 2. Подключаемся к Supabase
+    //    Используем переменные окружения, которые ты добавила в Vercel
+    const supabaseUrl = process.env.VITE_SUPABASE_URL;
+    const supabaseKey = process.env.VITE_SUPABASE_ANON_KEY;
 
-    // Проверяем, есть ли уже вопросы для этого документа
-    const { data: existingQuestions, error: checkError } = await supabase
-      .from('questions')
-      .select('id')
-      .eq('document_id', documentId);
-
-    if (existingQuestions && existingQuestions.length > 0) {
-      console.log(`📋 Вопросы уже существуют (${existingQuestions.length} шт.)`);
-      return res.status(200).json({
-        success: true,
-        questionsCount: existingQuestions.length,
-        message: `Вопросы уже сгенерированы`
-      });
+    if (!supabaseUrl || !supabaseKey) {
+      console.error('❌ Ошибка: переменные окружения Supabase не найдены!');
+      throw new Error('Серверная ошибка: отсутствуют переменные окружения Supabase.');
     }
 
-    // Создаём вопросы на основе documentId (уникальные для каждого документа)
-    const questions = [
+    const supabase = createClient(supabaseUrl, supabaseKey);
+    console.log('✅ Подключение к Supabase установлено.');
+
+    // 3. Генерируем вопросы (простые, но уникальные для каждого документа)
+    const uniqueSuffix = documentId.slice(-6);
+    const questionsToInsert = [
       {
-        text: `Что вы узнали из этого документа (ID: ${documentId.substring(0, 8)})?`,
+        document_id: documentId,
+        text: `Какова основная тема документа "${uniqueSuffix}"?`,
         options: [
-          "Новую информацию по теме",
-          "Ничего полезного",
-          "Только общие сведения",
-          "Затрудняюсь ответить"
+          "Технологии и программирование",
+          "Природа и экология",
+          "История и культура",
+          "Здоровье и спорт"
         ],
-        correct_answer: "Новую информацию по теме",
+        correct_answer: "Технологии и программирование",
         difficulty: "easy",
-        topic: "Общее"
+        topic: "Основная тема"
       },
       {
-        text: "Как вы оцениваете полезность этого материала?",
+        document_id: documentId,
+        text: `Какую пользу можно получить из этого документа (${uniqueSuffix})?`,
         options: [
-          "Очень полезно",
-          "Средне полезно",
-          "Мало полезно",
-          "Совсем не полезно"
+          "Получить новые знания",
+          "Провести время с пользой",
+          "Научиться новому навыку",
+          "Вдохновиться на новые идеи"
         ],
-        correct_answer: "Очень полезно",
+        correct_answer: "Получить новые знания",
         difficulty: "medium",
-        topic: "Оценка"
+        topic: "Польза документа"
       },
       {
-        text: "Что было самым интересным в этом документе?",
+        document_id: documentId,
+        text: `Кому в первую очередь будет полезен этот документ (${uniqueSuffix})?`,
         options: [
-          "Основная идея",
-          "Примеры и иллюстрации",
-          "Структура изложения",
-          "Заключение"
+          "Студентам и начинающим специалистам",
+          "Опытным экспертам",
+          "Руководителям",
+          "Людям, не связанным с этой темой"
         ],
-        correct_answer: "Основная идея",
+        correct_answer: "Студентам и начинающим специалистам",
         difficulty: "medium",
-        topic: "Интерес"
+        topic: "Целевая аудитория"
       }
     ];
 
-    // Сохраняем вопросы
+    // 4. Сохраняем вопросы в таблицу 'questions'
     let savedCount = 0;
-    for (const q of questions) {
-      const { error: insertError } = await supabase
+    for (const q of questionsToInsert) {
+      const { data, error } = await supabase
         .from('questions')
-        .insert({
-          document_id: documentId,
-          text: q.text,
-          options: q.options,
-          correct_answer: q.correct_answer,
-          difficulty: q.difficulty,
-          topic: q.topic
-        });
-      
-      if (insertError) {
-        console.error('❌ Ошибка сохранения:', insertError);
+        .insert(q)
+        .select();
+
+      if (error) {
+        console.error(`❌ Ошибка при сохранении вопроса "${q.text}":`, error.message);
       } else {
         savedCount++;
+        console.log(`✅ Вопрос сохранен: "${q.text.substring(0, 50)}..."`);
       }
     }
 
-    console.log(`✅ Сохранено ${savedCount} вопросов`);
+    console.log(`🏁 Итого сохранено вопросов: ${savedCount} из ${questionsToInsert.length}`);
 
-    // Обновляем статус документа
+    // 5. Обновляем статус документа на 'completed'
     const { error: updateError } = await supabase
       .from('documents')
       .update({ status: 'completed' })
       .eq('id', documentId);
 
     if (updateError) {
-      console.error('❌ Ошибка обновления статуса:', updateError);
+      console.error(`❌ Ошибка обновления статуса документа ${documentId}:`, updateError);
+      // Не прерываем выполнение, так как вопросы уже могли сохраниться
+    } else {
+      console.log(`✅ Статус документа ${documentId} обновлен на 'completed'`);
     }
 
+    // 6. Отправляем успешный ответ обратно на фронтенд
     return res.status(200).json({
       success: true,
       questionsCount: savedCount,
-      message: `Сгенерировано ${savedCount} вопросов`
+      message: `Обработка завершена. Сгенерировано ${savedCount} вопросов.`
     });
 
   } catch (error) {
-    console.error('❌ Ошибка:', error);
-    return res.status(500).json({ 
-      success: false, 
-      error: error.message 
+    // Логируем любую ошибку на сервере
+    console.error('❌ КРИТИЧЕСКАЯ ОШИБКА В API:', error);
+    return res.status(500).json({
+      success: false,
+      error: 'Внутренняя ошибка сервера. Пожалуйста, попробуйте позже.',
+      details: error.message // для отладки
     });
   }
 }
