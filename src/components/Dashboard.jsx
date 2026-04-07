@@ -115,70 +115,99 @@ export default function Dashboard() {
   }
 
   // Функция удаления документа
-  const deleteDocument = async (documentId, filename) => {
-    const confirmDelete = window.confirm(`Удалить файл "${filename}"?\nВсе вопросы по этому файлу также будут удалены.`);
-    if (!confirmDelete) return;
+ const deleteDocument = async (documentId, filename) => {
+  console.log('🗑️ НАЧАЛО УДАЛЕНИЯ:', documentId, filename);
+  
+  const confirmDelete = window.confirm(`Удалить файл "${filename}"?\nВсе вопросы по этому файлу также будут удалены.`);
+  if (!confirmDelete) {
+    console.log('❌ Удаление отменено пользователем');
+    return;
+  }
 
-    try {
-      console.log('🗑️ Удаляем документ:', documentId);
+  try {
+    // 1. Получаем информацию о документе
+    console.log('📄 Получаем информацию о документе...');
+    const { data: document, error: docError } = await supabase
+      .from('documents')
+      .select('*')
+      .eq('id', documentId)
+      .single();
 
-      // 1. Получаем путь к файлу в Storage
-      const { data: document, error: docError } = await supabase
-        .from('documents')
-        .select('file_url')
-        .eq('id', documentId)
-        .single();
+    if (docError) {
+      console.error('❌ Ошибка получения документа:', docError);
+      throw new Error('Документ не найден');
+    }
+    console.log('✅ Документ найден:', document);
 
-      if (docError) throw docError;
+    // 2. Удаляем вопросы
+    console.log('🗑️ Удаляем связанные вопросы...');
+    const { error: questionsError } = await supabase
+      .from('questions')
+      .delete()
+      .eq('document_id', documentId);
 
-      // 2. Удаляем вопросы
-      const { error: questionsError } = await supabase
-        .from('questions')
-        .delete()
-        .eq('document_id', documentId);
+    if (questionsError) {
+      console.error('❌ Ошибка удаления вопросов:', questionsError);
+    } else {
+      console.log('✅ Вопросы удалены');
+    }
 
-      if (questionsError) {
-        console.error('Ошибка удаления вопросов:', questionsError);
-      } else {
-        console.log('✅ Вопросы удалены');
+    // 3. Удаляем файл из Storage
+    if (document.file_url) {
+      console.log('🗑️ Удаляем файл из Storage...');
+      console.log('🔗 URL файла:', document.file_url);
+      
+      // Извлекаем путь из URL
+      let filePath = null;
+      if (document.file_url.includes('/storage/v1/object/documents/')) {
+        filePath = document.file_url.split('/storage/v1/object/documents/')[1];
+      } else if (document.file_url.includes('/object/documents/')) {
+        filePath = document.file_url.split('/object/documents/')[1];
       }
-
-      // 3. Удаляем файл из Storage
-      if (document?.file_url) {
-        const filePath = document.file_url.split('/storage/v1/object/documents/')[1];
-        if (filePath) {
-          const { error: storageError } = await supabase.storage
-            .from('documents')
-            .remove([filePath]);
-          
-          if (storageError) {
-            console.error('Ошибка удаления файла:', storageError);
-          } else {
-            console.log('✅ Файл удалён из Storage');
-          }
+      
+      console.log('📁 Путь к файлу:', filePath);
+      
+      if (filePath) {
+        const { error: storageError } = await supabase.storage
+          .from('documents')
+          .remove([filePath]);
+        
+        if (storageError) {
+          console.error('❌ Ошибка удаления из Storage:', storageError);
+        } else {
+          console.log('✅ Файл удалён из Storage');
         }
       }
-
-      // 4. Удаляем запись из таблицы documents
-      const { error: deleteError } = await supabase
-        .from('documents')
-        .delete()
-        .eq('id', documentId);
-
-      if (deleteError) throw deleteError;
-      console.log('✅ Запись удалена из БД');
-
-      // 5. Обновляем список
-      const user = await supabase.auth.getUser();
-      await loadDocuments(user.data.user.id);
-      
-      alert(`✅ Файл "${filename}" удалён`);
-
-    } catch (error) {
-      console.error('❌ Ошибка удаления:', error);
-      alert('Ошибка удаления: ' + error.message);
     }
-  };
+
+    // 4. Удаляем запись из таблицы documents
+    console.log('🗑️ Удаляем запись из БД...');
+    const { error: deleteError } = await supabase
+      .from('documents')
+      .delete()
+      .eq('id', documentId);
+
+    if (deleteError) {
+      console.error('❌ Ошибка удаления документа:', deleteError);
+      throw new Error('Не удалось удалить документ из БД');
+    }
+    console.log('✅ Запись удалена из БД');
+
+    // 5. Обновляем список документов
+    console.log('🔄 Обновляем список документов...');
+    const { data: userData } = await supabase.auth.getUser();
+    if (userData?.user) {
+      await loadDocuments(userData.user.id);
+    }
+    
+    console.log('✅ УДАЛЕНИЕ ЗАВЕРШЕНО УСПЕШНО!');
+    alert(`✅ Файл "${filename}" удалён`);
+
+  } catch (error) {
+    console.error('❌ КРИТИЧЕСКАЯ ОШИБКА:', error);
+    alert('Ошибка удаления: ' + error.message);
+  }
+};
 
   const startGame = (documentId) => {
     navigate(`/game/${documentId}`)
